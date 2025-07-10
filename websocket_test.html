@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmarApp Chat Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 10px 0;
+        }
+        #messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .message.join { background-color: #e8f5e8; }
+        .message.leave { background-color: #ffe8e8; }
+        .message.chat { background-color: #e8f0ff; }
+        input[type="text"] {
+            width: 70%;
+            padding: 10px;
+            margin: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>SmarApp WebSocket Chat Test</h1>
+    
+    <div class="container">
+        <h3>Authentication</h3>
+        <input type="text" id="token" placeholder="Enter JWT token here" style="width: 90%;">
+        <br>
+        <button onclick="connect()">Connect to Chat</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <div id="status" class="status disconnected">Disconnected</div>
+    </div>
+
+    <div class="container">
+        <h3>Chat Messages</h3>
+        <div id="messages"></div>
+        <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+        <button onclick="sendMessage()">Send Message</button>
+    </div>
+
+    <div class="container">
+        <h3>Instructions</h3>
+        <ol>
+            <li>First, get a JWT token by registering/logging in via the API</li>
+            <li>Paste the token in the input field above</li>
+            <li>Click "Connect to Chat"</li>
+            <li>Start chatting!</li>
+        </ol>
+        <p><strong>Example API calls:</strong></p>
+        <pre>
+# Register a user
+curl -X POST http://127.0.0.1:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "email": "test@example.com", "password": "password123"}'
+
+# Login
+curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "password123"}'
+        </pre>
+    </div>
+
+    <script>
+        let ws = null;
+        let token = '';
+
+        function connect() {
+            token = document.getElementById('token').value.trim();
+            if (!token) {
+                alert('Please enter a JWT token');
+                return;
+            }
+
+            try {
+                ws = new WebSocket('ws://127.0.0.1:8080/api/v1/chat/ws', [], {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                ws.onopen = function(event) {
+                    updateStatus('Connected', true);
+                    addMessage('System', 'Connected to chat server', 'join');
+                };
+
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                };
+
+                ws.onclose = function(event) {
+                    updateStatus('Disconnected', false);
+                    addMessage('System', 'Disconnected from chat server', 'leave');
+                };
+
+                ws.onerror = function(error) {
+                    updateStatus('Connection Error', false);
+                    addMessage('System', 'Connection error: ' + error, 'leave');
+                };
+            } catch (error) {
+                alert('Failed to connect: ' + error.message);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (!message || !ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            ws.send(JSON.stringify({
+                message: message
+            }));
+
+            messageInput.value = '';
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'chat':
+                    if (data.data) {
+                        addMessage(data.data.username, data.data.message, 'chat');
+                    }
+                    break;
+                case 'join':
+                    addMessage('System', data.message, 'join');
+                    break;
+                case 'leave':
+                    addMessage('System', data.message, 'leave');
+                    break;
+                case 'history':
+                    if (data.data && Array.isArray(data.data)) {
+                        data.data.forEach(msg => {
+                            addMessage(msg.username, msg.message, 'chat');
+                        });
+                    }
+                    break;
+                case 'error':
+                    addMessage('Error', data.message, 'leave');
+                    break;
+            }
+        }
+
+        function addMessage(username, message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<strong>[${timestamp}] ${username}:</strong> ${message}`;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function updateStatus(status, connected) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+        }
+    </script>
+</body>
+</html>

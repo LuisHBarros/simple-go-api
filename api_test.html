@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmarApp API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 10px 0;
+        }
+        .result {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success { background-color: #d4edda; }
+        .error { background-color: #f8d7da; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover { background-color: #0056b3; }
+        input[type="text"], input[type="email"], input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>SmarApp API Test</h1>
+    
+    <div class="container">
+        <h3>API Base URL</h3>
+        <input type="text" id="baseUrl" value="http://127.0.0.1:8080/api/v1" placeholder="API Base URL">
+    </div>
+
+    <div class="container">
+        <h3>1. Test Health Check</h3>
+        <button onclick="testHealth()">Test Health</button>
+        <div id="healthResult" class="result"></div>
+    </div>
+
+    <div class="container">
+        <h3>2. Register User</h3>
+        <input type="text" id="username" placeholder="Username" value="testuser">
+        <input type="email" id="email" placeholder="Email" value="test@example.com">
+        <input type="password" id="password" placeholder="Password" value="password123">
+        <select id="role">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+        </select>
+        <br>
+        <button onclick="registerUser()">Register</button>
+        <div id="registerResult" class="result"></div>
+    </div>
+
+    <div class="container">
+        <h3>3. Login User</h3>
+        <input type="email" id="loginEmail" placeholder="Email" value="test@example.com">
+        <input type="password" id="loginPassword" placeholder="Password" value="password123">
+        <br>
+        <button onclick="loginUser()">Login</button>
+        <div id="loginResult" class="result"></div>
+    </div>
+
+    <div class="container">
+        <h3>4. Get Products (Public)</h3>
+        <button onclick="getProducts()">Get Products</button>
+        <div id="productsResult" class="result"></div>
+    </div>
+
+    <div class="container">
+        <h3>5. Get Profile (Requires Token)</h3>
+        <input type="text" id="token" placeholder="JWT Token (from login)" style="width: 100%;">
+        <br>
+        <button onclick="getProfile()">Get Profile</button>
+        <div id="profileResult" class="result"></div>
+    </div>
+
+    <script>
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value;
+        }
+
+        function displayResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(data, null, 2);
+            element.className = `result ${isError ? 'error' : 'success'}`;
+        }
+
+        async function testHealth() {
+            try {
+                const response = await fetch(`${getBaseUrl().replace('/api/v1', '')}/health`);
+                const data = await response.json();
+                displayResult('healthResult', data);
+            } catch (error) {
+                displayResult('healthResult', { error: error.message }, true);
+            }
+        }
+
+        async function registerUser() {
+            try {
+                const userData = {
+                    username: document.getElementById('username').value,
+                    email: document.getElementById('email').value,
+                    password: document.getElementById('password').value,
+                    role: document.getElementById('role').value
+                };
+
+                const response = await fetch(`${getBaseUrl()}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+                displayResult('registerResult', data, !response.ok);
+                
+                if (response.ok && data.token) {
+                    document.getElementById('token').value = data.token;
+                }
+            } catch (error) {
+                displayResult('registerResult', { error: error.message }, true);
+            }
+        }
+
+        async function loginUser() {
+            try {
+                const loginData = {
+                    email: document.getElementById('loginEmail').value,
+                    password: document.getElementById('loginPassword').value
+                };
+
+                const response = await fetch(`${getBaseUrl()}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(loginData)
+                });
+
+                const data = await response.json();
+                displayResult('loginResult', data, !response.ok);
+                
+                if (response.ok && data.token) {
+                    document.getElementById('token').value = data.token;
+                }
+            } catch (error) {
+                displayResult('loginResult', { error: error.message }, true);
+            }
+        }
+
+        async function getProducts() {
+            try {
+                const response = await fetch(`${getBaseUrl()}/products`);
+                const data = await response.json();
+                displayResult('productsResult', data, !response.ok);
+            } catch (error) {
+                displayResult('productsResult', { error: error.message }, true);
+            }
+        }
+
+        async function getProfile() {
+            try {
+                const token = document.getElementById('token').value;
+                if (!token) {
+                    throw new Error('Please provide a JWT token');
+                }
+
+                const response = await fetch(`${getBaseUrl()}/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+                displayResult('profileResult', data, !response.ok);
+            } catch (error) {
+                displayResult('profileResult', { error: error.message }, true);
+            }
+        }
+    </script>
+</body>
+</html>
