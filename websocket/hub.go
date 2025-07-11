@@ -5,6 +5,7 @@ import (
 	"log"
 	"smarapp-api/database"
 	"smarapp-api/models"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type Hub struct {
 	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
+	dbMutex    sync.Mutex
 }
 
 func NewHub() *Hub {
@@ -129,14 +131,21 @@ func (h *Hub) sendChatHistory(client *Client) {
 }
 
 func (h *Hub) SaveAndBroadcastMessage(userID int, username, message string) error {
+	// Use mutex to prevent concurrent database writes
+	h.dbMutex.Lock()
+	defer h.dbMutex.Unlock()
+
 	// Save to database
+	log.Printf("Attempting to save message: UserID=%d, Username=%s, Message=%s", userID, username, message)
 	_, err := database.DB.Exec(
 		"INSERT INTO chat_messages (user_id, username, message, created_at) VALUES (?, ?, ?, ?)",
 		userID, username, message, time.Now(),
 	)
 	if err != nil {
+		log.Printf("Error saving message to database: %v", err)
 		return err
 	}
+	log.Printf("Message saved successfully to database")
 
 	// Broadcast to all clients
 	chatMsg := models.WebSocketMessage{

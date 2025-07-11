@@ -35,6 +35,7 @@ type Client struct {
 
 func (c *Client) readPump() {
 	defer func() {
+		log.Printf("Client %s (ID: %d) readPump exiting", c.Username, c.UserID)
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -46,14 +47,20 @@ func (c *Client) readPump() {
 		return nil
 	})
 
+	log.Printf("Starting readPump for client %s (ID: %d)", c.Username, c.UserID)
 	for {
+		log.Printf("Waiting for message from client %s (ID: %d)", c.Username, c.UserID)
 		_, messageBytes, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket error: %v", err)
+			} else {
+				log.Printf("WebSocket connection closed: %v", err)
 			}
 			break
 		}
+
+		log.Printf("Raw message received from client %s (ID: %d): %s", c.Username, c.UserID, string(messageBytes))
 
 		var msg models.SendMessageRequest
 		if err := json.Unmarshal(messageBytes, &msg); err != nil {
@@ -61,9 +68,13 @@ func (c *Client) readPump() {
 			continue
 		}
 
+		log.Printf("Parsed message from client %s (ID: %d): %s", c.Username, c.UserID, msg.Message)
+
 		// Save and broadcast the message
 		if err := c.hub.SaveAndBroadcastMessage(c.UserID, c.Username, msg.Message); err != nil {
 			log.Printf("Error saving message: %v", err)
+		} else {
+			log.Printf("Message processed successfully, continuing loop...")
 		}
 	}
 }
@@ -111,11 +122,13 @@ func (c *Client) writePump() {
 }
 
 func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, userID int, username string) {
+	log.Printf("ServeWS called for user %s (ID: %d)", username, userID)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
+	log.Printf("WebSocket upgrade successful for user %s (ID: %d)", username, userID)
 
 	client := &Client{
 		hub:      hub,
@@ -125,8 +138,27 @@ func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, userID int, usern
 		Username: username,
 	}
 
+	log.Printf("Registering client %s (ID: %d)", username, userID)
 	client.hub.register <- client
 
-	go client.writePump()
-	go client.readPump()
+	log.Printf("Starting goroutines for client %s (ID: %d)", username, userID)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("writePump panic for client %s (ID: %d): %v", username, userID, r)
+			}
+		}()
+		client.writePump()
+	}()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("readPump panic for client %s (ID: %d): %v", username, userID, r)
+			}
+		}()
+		client.readPump()
+	}()
+
+	log.Printf("Goroutines started for client %s (ID: %d)", username, userID)
 }

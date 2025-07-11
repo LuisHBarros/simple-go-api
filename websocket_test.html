@@ -112,21 +112,25 @@ curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
                 });
 
                 ws.onopen = function(event) {
+                    console.log('WebSocket opened:', event);
                     updateStatus('Connected', true);
                     addMessage('System', 'Connected to chat server', 'join');
                 };
 
                 ws.onmessage = function(event) {
+                    console.log('WebSocket message received:', event.data);
                     const data = JSON.parse(event.data);
                     handleMessage(data);
                 };
 
                 ws.onclose = function(event) {
+                    console.log('WebSocket closed:', event);
                     updateStatus('Disconnected', false);
                     addMessage('System', 'Disconnected from chat server', 'leave');
                 };
 
                 ws.onerror = function(error) {
+                    console.log('WebSocket error:', error);
                     updateStatus('Connection Error', false);
                     addMessage('System', 'Connection error: ' + error, 'leave');
                 };
@@ -145,14 +149,23 @@ curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
         function sendMessage() {
             const messageInput = document.getElementById('messageInput');
             const message = messageInput.value.trim();
-            
+
             if (!message || !ws || ws.readyState !== WebSocket.OPEN) {
+                console.log('Cannot send message:', {
+                    hasMessage: !!message,
+                    hasWs: !!ws,
+                    readyState: ws ? ws.readyState : 'no ws'
+                });
                 return;
             }
 
-            ws.send(JSON.stringify({
+            const messageObj = {
                 message: message
-            }));
+            };
+
+            console.log('Sending message:', messageObj);
+            ws.send(JSON.stringify(messageObj));
+            console.log('Message sent successfully');
 
             messageInput.value = '';
         }

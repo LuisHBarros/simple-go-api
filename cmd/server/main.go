@@ -27,7 +27,7 @@ import (
 // @license.name MIT
 // @license.url https://opensource.org/licenses/MIT
 
-// @host 127.0.0.1:8080
+// @host localhost:8080
 // @BasePath /api/v1
 // @schemes http https
 
@@ -77,7 +77,7 @@ func main() {
 	})
 
 	// Swagger documentation
-	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("http://127.0.0.1:8080/docs/doc.json")))
+	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Public routes
 	api := r.Group("/api/v1")
