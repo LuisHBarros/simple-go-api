@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"smarapp-api/database"
+	"smarapp-api/errors"
 	"smarapp-api/models"
 	"smarapp-api/websocket"
 
@@ -22,13 +23,15 @@ func NewChatHandler(hub *websocket.Hub) *ChatHandler {
 func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		apiErr := errors.UserRoleNotFound()
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	username, exists := c.Get("username")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Username not found"})
+		apiErr := errors.Unauthorized("Username not found in session", "Please log in again")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -37,13 +40,14 @@ func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 
 func (h *ChatHandler) GetChatHistory(c *gin.Context) {
 	rows, err := database.DB.Query(`
-		SELECT id, user_id, username, message, created_at 
-		FROM chat_messages 
-		ORDER BY created_at DESC 
+		SELECT id, user_id, username, message, created_at
+		FROM chat_messages
+		ORDER BY created_at DESC
 		LIMIT 100
 	`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch chat history"})
+		apiErr := errors.DatabaseError("chat history retrieval", "Failed to retrieve chat messages")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 	defer rows.Close()
@@ -53,7 +57,8 @@ func (h *ChatHandler) GetChatHistory(c *gin.Context) {
 		var msg models.ChatMessage
 		err := rows.Scan(&msg.ID, &msg.UserID, &msg.Username, &msg.Message, &msg.CreatedAt)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan message"})
+			apiErr := errors.DatabaseError("message scanning", "Failed to process chat message data")
+			errors.RespondWithAPIError(c, apiErr)
 			return
 		}
 		messages = append(messages, msg)

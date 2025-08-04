@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"smarapp-api/database"
+	"smarapp-api/errors"
 	"smarapp-api/models"
 	"strconv"
 	"time"
@@ -34,18 +35,25 @@ func NewProductHandler() *ProductHandler {
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	var req models.CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		validationErrors := errors.FormatValidationErrors(err)
+		errors.RespondWithAPIErrors(c, validationErrors)
 		return
 	}
 
-	userID, _ := c.Get("user_id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		apiErr := errors.UserRoleNotFound()
+		errors.RespondWithAPIError(c, apiErr)
+		return
+	}
 
 	result, err := database.DB.Exec(
 		"INSERT INTO products (name, description, price, stock, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		req.Name, req.Description, req.Price, req.Stock, userID, time.Now(), time.Now(),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
+		apiErr := errors.DatabaseError("product creation", "Failed to save product to database")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -78,7 +86,8 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 		"SELECT id, name, description, price, stock, created_by, created_at, updated_at FROM products ORDER BY created_at DESC",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+		apiErr := errors.DatabaseError("product retrieval", "Failed to retrieve products from database")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 	defer rows.Close()
@@ -91,7 +100,8 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 			&product.Stock, &product.CreatedBy, &product.CreatedAt, &product.UpdatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan product"})
+			apiErr := errors.DatabaseError("product scanning", "Failed to process product data")
+			errors.RespondWithAPIError(c, apiErr)
 			return
 		}
 		products = append(products, product)
@@ -104,7 +114,8 @@ func (h *ProductHandler) GetProduct(c *gin.Context) {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		apiErr := errors.InvalidInput("id", "Product ID must be a valid number")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -118,11 +129,13 @@ func (h *ProductHandler) GetProduct(c *gin.Context) {
 	)
 
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		apiErr := errors.ProductNotFound(id)
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		apiErr := errors.DatabaseError("product retrieval", "Failed to retrieve product information")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -133,13 +146,15 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		apiErr := errors.InvalidInput("id", "Product ID must be a valid number")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	var req models.UpdateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		validationErrors := errors.FormatValidationErrors(err)
+		errors.RespondWithAPIErrors(c, validationErrors)
 		return
 	}
 
@@ -147,7 +162,13 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	var existingProduct models.Product
 	err = database.DB.QueryRow("SELECT id FROM products WHERE id = ?", id).Scan(&existingProduct.ID)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		apiErr := errors.ProductNotFound(id)
+		errors.RespondWithAPIError(c, apiErr)
+		return
+	}
+	if err != nil {
+		apiErr := errors.DatabaseError("product lookup", "Failed to verify product existence")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -177,7 +198,8 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 
 	_, err = database.DB.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+		apiErr := errors.DatabaseError("product update", "Failed to update product information")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -189,19 +211,22 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		apiErr := errors.InvalidInput("id", "Product ID must be a valid number")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	result, err := database.DB.Exec("DELETE FROM products WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+		apiErr := errors.DatabaseError("product deletion", "Failed to delete product from database")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		apiErr := errors.ProductNotFound(id)
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 

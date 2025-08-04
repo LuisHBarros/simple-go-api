@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"smarapp-api/database"
+	"smarapp-api/errors"
 	"smarapp-api/models"
 	"strconv"
 	"time"
@@ -34,104 +35,148 @@ func NewOrderHandler() *OrderHandler {
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	var req models.CreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		validationErrors := errors.FormatValidationErrors(err)
+		errors.RespondWithAPIErrors(c, validationErrors)
 		return
 	}
 
-	userID, _ := c.Get("user_id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		apiErr := errors.UserRoleNotFound()
+		errors.RespondWithAPIError(c, apiErr)
+		return
+	}
 
 	// Start transaction
 	tx, err := database.DB.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		apiErr := errors.DatabaseError("transaction start", "Failed to begin database transaction")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 	defer tx.Rollback()
 
-	// Get product and check stock
-	var product models.Product
-	err = tx.QueryRow(
-		"SELECT id, name, description, price, stock, created_by, created_at, updated_at FROM products WHERE id = ?",
-		req.ProductID,
-	).Scan(
-		&product.ID, &product.Name, &product.Description, &product.Price,
-		&product.Stock, &product.CreatedBy, &product.CreatedAt, &product.UpdatedAt,
-	)
+	var orderTotal float64
+	var products []models.Product
+	var orderItems []models.OrderItem
 
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return
-	}
+	// Validate all products and calculate total
+	for _, item := range req.Items {
+		// Validate quantity
+		if item.Quantity <= 0 {
+			apiErr := errors.InvalidInput("quantity", "Quantity must be greater than 0")
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
 
-	// Check if enough stock
-	if product.Stock < req.Quantity {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Insufficient stock"})
-		return
-	}
+		var product models.Product
+		err = tx.QueryRow(
+			"SELECT id, name, description, price, stock, created_by, created_at, updated_at FROM products WHERE id = ?",
+			item.ProductID,
+		).Scan(
+			&product.ID, &product.Name, &product.Description, &product.Price,
+			&product.Stock, &product.CreatedBy, &product.CreatedAt, &product.UpdatedAt,
+		)
 
-	// Calculate total
-	total := product.Price * float64(req.Quantity)
+		if err == sql.ErrNoRows {
+			apiErr := errors.ProductNotFound(item.ProductID)
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
+		if err != nil {
+			apiErr := errors.DatabaseError("product lookup", "Failed to retrieve product information")
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
+
+		if product.Stock < item.Quantity {
+			apiErr := errors.InsufficientStock(product.Name, item.Quantity, product.Stock)
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
+
+		itemTotal := product.Price * float64(item.Quantity)
+		orderTotal += itemTotal
+
+		orderItems = append(orderItems, models.OrderItem{
+			ProductID: item.ProductID,
+			Quantity:  item.Quantity,
+			Price:     product.Price,
+			Total:     itemTotal,
+		})
+
+		product.Stock -= item.Quantity
+		products = append(products, product)
+	}
 
 	// Create order
 	result, err := tx.Exec(
-		"INSERT INTO orders (user_id, product_id, quantity, price, total, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		userID, req.ProductID, req.Quantity, product.Price, total, models.OrderStatusPending, time.Now(), time.Now(),
+		"INSERT INTO orders (user_id, total, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		userID, orderTotal, models.OrderStatusPending, time.Now(), time.Now(),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+		apiErr := errors.DatabaseError("order creation", "Failed to create order")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	orderID, _ := result.LastInsertId()
 
-	// Update product stock
-	_, err = tx.Exec(
-		"UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ?",
-		req.Quantity, time.Now(), req.ProductID,
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stock"})
-		return
+	// Create order items and update stock
+	for i, item := range orderItems {
+		_, err = tx.Exec(
+			"INSERT INTO order_items (order_id, product_id, quantity, price, total) VALUES (?, ?, ?, ?, ?)",
+			orderID, item.ProductID, item.Quantity, item.Price, item.Total,
+		)
+		if err != nil {
+			apiErr := errors.DatabaseError("order item creation", "Failed to create order item")
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
+
+		_, err = tx.Exec(
+			"UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ?",
+			item.Quantity, time.Now(), item.ProductID,
+		)
+		if err != nil {
+			apiErr := errors.DatabaseError("stock update", "Failed to update product stock")
+			errors.RespondWithAPIError(c, apiErr)
+			return
+		}
+
+		orderItems[i].OrderID = int(orderID)
 	}
 
-	// Complete order (simulate payment success)
+	// Complete order
 	_, err = tx.Exec(
 		"UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
 		models.OrderStatusCompleted, time.Now(), orderID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete order"})
+		apiErr := errors.DatabaseError("order completion", "Failed to complete order")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
-	// Commit transaction
 	if err = tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		apiErr := errors.DatabaseError("transaction commit", "Failed to commit order transaction")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	order := models.Order{
 		ID:        int(orderID),
 		UserID:    userID.(int),
-		ProductID: req.ProductID,
-		Quantity:  req.Quantity,
-		Price:     product.Price,
-		Total:     total,
+		Total:     orderTotal,
 		Status:    models.OrderStatusCompleted,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		Items:     orderItems,
 	}
 
-	// Update product stock for response
-	product.Stock -= req.Quantity
-
 	c.JSON(http.StatusCreated, models.OrderResponse{
-		Order:   order,
-		Product: product,
+		Order:    order,
+		Products: products,
 	})
 }
 
@@ -139,10 +184,8 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
 	rows, err := database.DB.Query(`
-		SELECT o.id, o.user_id, o.product_id, o.quantity, o.price, o.total, o.status, o.created_at, o.updated_at,
-		       p.name as product_name
+		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
 		FROM orders o
-		JOIN products p ON o.product_id = p.id
 		WHERE o.user_id = ?
 		ORDER BY o.created_at DESC
 	`, userID)
@@ -153,18 +196,42 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var orders []models.OrderWithDetails
+	var orders []models.Order
 	for rows.Next() {
-		var order models.OrderWithDetails
+		var order models.Order
 		err := rows.Scan(
-			&order.ID, &order.UserID, &order.ProductID, &order.Quantity,
-			&order.Price, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
-			&order.ProductName,
+			&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order"})
 			return
 		}
+
+		// Get order items
+		itemRows, err := database.DB.Query(`
+			SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
+			FROM order_items oi
+			WHERE oi.order_id = ?
+		`, order.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
+			return
+		}
+
+		var items []models.OrderItem
+		for itemRows.Next() {
+			var item models.OrderItem
+			err := itemRows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.Quantity, &item.Price, &item.Total)
+			if err != nil {
+				itemRows.Close()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order item"})
+				return
+			}
+			items = append(items, item)
+		}
+		itemRows.Close()
+
+		order.Items = items
 		orders = append(orders, order)
 	}
 
@@ -173,11 +240,8 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 
 func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	rows, err := database.DB.Query(`
-		SELECT o.id, o.user_id, o.product_id, o.quantity, o.price, o.total, o.status, o.created_at, o.updated_at,
-		       p.name as product_name, u.username
+		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
 		FROM orders o
-		JOIN products p ON o.product_id = p.id
-		JOIN users u ON o.user_id = u.id
 		ORDER BY o.created_at DESC
 	`)
 
@@ -187,18 +251,42 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var orders []models.OrderWithDetails
+	var orders []models.Order
 	for rows.Next() {
-		var order models.OrderWithDetails
+		var order models.Order
 		err := rows.Scan(
-			&order.ID, &order.UserID, &order.ProductID, &order.Quantity,
-			&order.Price, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
-			&order.ProductName, &order.Username,
+			&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order"})
 			return
 		}
+
+		// Get order items
+		itemRows, err := database.DB.Query(`
+			SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
+			FROM order_items oi
+			WHERE oi.order_id = ?
+		`, order.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
+			return
+		}
+
+		var items []models.OrderItem
+		for itemRows.Next() {
+			var item models.OrderItem
+			err := itemRows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.Quantity, &item.Price, &item.Total)
+			if err != nil {
+				itemRows.Close()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order item"})
+				return
+			}
+			items = append(items, item)
+		}
+		itemRows.Close()
+
+		order.Items = items
 		orders = append(orders, order)
 	}
 
@@ -217,25 +305,24 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	role, _ := c.Get("role")
 
 	query := `
-		SELECT o.id, o.user_id, o.product_id, o.quantity, o.price, o.total, o.status, o.created_at, o.updated_at,
-		       p.name as product_name
+		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
 		FROM orders o
-		JOIN products p ON o.product_id = p.id
-		WHERE o.id = ?`
+		WHERE o.id = ?` + func() string {
+			if role != models.RoleAdmin {
+				return " AND o.user_id = ?"
+			}
+			return ""
+		}() + `
+	`
 
 	args := []interface{}{id}
-
-	// If not admin, only show user's own orders
 	if role != models.RoleAdmin {
-		query += " AND o.user_id = ?"
 		args = append(args, userID)
 	}
 
-	var order models.OrderWithDetails
+	var order models.Order
 	err = database.DB.QueryRow(query, args...).Scan(
-		&order.ID, &order.UserID, &order.ProductID, &order.Quantity,
-		&order.Price, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
-		&order.ProductName,
+		&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -247,5 +334,29 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 		return
 	}
 
+	// Get order items
+	itemRows, err := database.DB.Query(`
+		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
+		FROM order_items oi
+		WHERE oi.order_id = ?
+	`, order.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
+		return
+	}
+	defer itemRows.Close()
+
+	var items []models.OrderItem
+	for itemRows.Next() {
+		var item models.OrderItem
+		err := itemRows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.Quantity, &item.Price, &item.Total)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order item"})
+			return
+		}
+		items = append(items, item)
+	}
+
+	order.Items = items
 	c.JSON(http.StatusOK, order)
 }

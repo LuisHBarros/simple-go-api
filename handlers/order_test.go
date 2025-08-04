@@ -29,8 +29,12 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 		{
 			name: "valid order creation",
 			requestBody: models.CreateOrderRequest{
-				ProductID: 1,
-				Quantity:  2,
+				Items: []struct {
+					ProductID int `json:"product_id" binding:"required,gt=0"`
+					Quantity  int `json:"quantity" binding:"required,gt=0"`
+				}{
+					{ProductID: 1, Quantity: 2},
+				},
 			},
 			userID:         2,
 			expectedStatus: http.StatusCreated,
@@ -38,8 +42,12 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 		{
 			name: "insufficient stock",
 			requestBody: models.CreateOrderRequest{
-				ProductID: 1,
-				Quantity:  20, // More than available stock (10)
+				Items: []struct {
+					ProductID int `json:"product_id" binding:"required,gt=0"`
+					Quantity  int `json:"quantity" binding:"required,gt=0"`
+				}{
+					{ProductID: 1, Quantity: 20}, // More than available stock (10)
+				},
 			},
 			userID:         2,
 			expectedStatus: http.StatusBadRequest,
@@ -47,8 +55,12 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 		{
 			name: "non-existent product",
 			requestBody: models.CreateOrderRequest{
-				ProductID: 999,
-				Quantity:  1,
+				Items: []struct {
+					ProductID int `json:"product_id" binding:"required,gt=0"`
+					Quantity  int `json:"quantity" binding:"required,gt=0"`
+				}{
+					{ProductID: 999, Quantity: 1},
+				},
 			},
 			userID:         2,
 			expectedStatus: http.StatusNotFound,
@@ -56,8 +68,12 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 		{
 			name: "invalid quantity",
 			requestBody: models.CreateOrderRequest{
-				ProductID: 1,
-				Quantity:  0,
+				Items: []struct {
+					ProductID int `json:"product_id" binding:"required,gt=0"`
+					Quantity  int `json:"quantity" binding:"required,gt=0"`
+				}{
+					{ProductID: 1, Quantity: 0},
+				},
 			},
 			userID:         2,
 			expectedStatus: http.StatusBadRequest,
@@ -85,8 +101,8 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 				var response models.OrderResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				assert.NoError(t, err)
-				assert.Equal(t, tt.requestBody.ProductID, response.Order.ProductID)
-				assert.Equal(t, tt.requestBody.Quantity, response.Order.Quantity)
+				assert.Equal(t, tt.requestBody.Items[0].ProductID, response.Order.Items[0].ProductID)
+				assert.Equal(t, tt.requestBody.Items[0].Quantity, response.Order.Items[0].Quantity)
 				assert.Equal(t, tt.userID, response.Order.UserID)
 				assert.Equal(t, models.OrderStatusCompleted, response.Order.Status)
 				assert.Greater(t, response.Order.Total, 0.0)
@@ -247,8 +263,12 @@ func TestOrderHandler_StockReduction(t *testing.T) {
 
 	// Create order
 	orderReq := models.CreateOrderRequest{
-		ProductID: 1,
-		Quantity:  3,
+		Items: []struct {
+			ProductID int `json:"product_id" binding:"required,gt=0"`
+			Quantity  int `json:"quantity" binding:"required,gt=0"`
+		}{
+			{ProductID: 1, Quantity: 3},
+		},
 	}
 	jsonBody, _ := json.Marshal(orderReq)
 	req := httptest.NewRequest("POST", "/orders", bytes.NewBuffer(jsonBody))

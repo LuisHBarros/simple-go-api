@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"smarapp-api/database"
+	"smarapp-api/errors"
 	"smarapp-api/middleware"
 	"smarapp-api/models"
 	"time"
@@ -37,7 +38,9 @@ func NewAuthHandler(jwtSecret string) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// Use the new error handling system for validation errors
+		validationErrors := errors.FormatValidationErrors(err)
+		errors.RespondWithAPIErrors(c, validationErrors)
 		return
 	}
 
@@ -46,16 +49,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		req.Role = models.RoleUser
 	}
 
-	// Validate role
+	// Validate role using the new error system
 	if req.Role != models.RoleUser && req.Role != models.RoleAdmin {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role"})
+		apiErr := errors.InvalidInput("role", "Role must be either 'user' or 'admin'")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		apiErr := errors.InternalError("Failed to process password", "Password hashing failed")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -63,7 +68,27 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var existingID int
 	err = database.DB.QueryRow("SELECT id FROM users WHERE email = ? OR username = ?", req.Email, req.Username).Scan(&existingID)
 	if err != sql.ErrNoRows {
-		c.JSON(http.StatusConflict, gin.H{"error": "User with this email or username already exists"})
+		// Determine which field conflicts
+		var emailExists, usernameExists bool
+		database.DB.QueryRow("SELECT id FROM users WHERE email = ?", req.Email).Scan(&existingID)
+		if existingID > 0 {
+			emailExists = true
+		}
+		database.DB.QueryRow("SELECT id FROM users WHERE username = ?", req.Username).Scan(&existingID)
+		if existingID > 0 {
+			usernameExists = true
+		}
+
+		if emailExists && usernameExists {
+			apiErr := errors.AlreadyExists("User", "Both email and username are already registered")
+			errors.RespondWithAPIError(c, apiErr)
+		} else if emailExists {
+			apiErr := errors.UserAlreadyExists("email", req.Email)
+			errors.RespondWithAPIError(c, apiErr)
+		} else {
+			apiErr := errors.UserAlreadyExists("username", req.Username)
+			errors.RespondWithAPIError(c, apiErr)
+		}
 		return
 	}
 
@@ -73,7 +98,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		req.Username, req.Email, string(hashedPassword), req.Role, time.Now(), time.Now(),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		apiErr := errors.DatabaseError("user creation", "Failed to save user to database")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -91,7 +117,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Generate token
 	token, err := middleware.GenerateToken(user, h.JWTSecret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		apiErr := errors.InternalError("Failed to generate authentication token", "Token generation failed")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -116,7 +143,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		validationErrors := errors.FormatValidationErrors(err)
+		errors.RespondWithAPIErrors(c, validationErrors)
 		return
 	}
 
@@ -128,24 +156,28 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	).Scan(&user.ID, &user.Username, &user.Email, &hashedPassword, &user.Role, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		apiErr := errors.InvalidCredentials()
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		apiErr := errors.DatabaseError("user lookup", "Failed to retrieve user information")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		apiErr := errors.InvalidCredentials()
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
 	// Generate token
 	token, err := middleware.GenerateToken(user, h.JWTSecret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		apiErr := errors.InternalError("Failed to generate authentication token", "Token generation failed")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 
@@ -166,16 +198,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Failure 404 {object} map[string]string
 // @Router /profile [get]
 func (h *AuthHandler) GetProfile(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	
+	userID, exists := c.Get("user_id")
+	if !exists {
+		apiErr := errors.UserRoleNotFound()
+		errors.RespondWithAPIError(c, apiErr)
+		return
+	}
+
 	var user models.User
 	err := database.DB.QueryRow(
 		"SELECT id, username, email, role, created_at, updated_at FROM users WHERE id = ?",
 		userID,
 	).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
 
+	if err == sql.ErrNoRows {
+		apiErr := errors.UserNotFound("with the provided ID")
+		errors.RespondWithAPIError(c, apiErr)
+		return
+	}
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		apiErr := errors.DatabaseError("profile retrieval", "Failed to retrieve user profile")
+		errors.RespondWithAPIError(c, apiErr)
 		return
 	}
 

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"smarapp-api/database"
 	"testing"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // SetupTestDB creates a temporary test database and returns a cleanup function
