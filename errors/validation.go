@@ -104,6 +104,33 @@ func ValidateID(idStr, resource string) (int, *APIError) {
 	return 0, nil // Placeholder - actual ID parsing would go here
 }
 
+// ValidateOrderRequest validates a complete order request
+func ValidateOrderRequest(items []struct {
+	ProductID int `json:"product_id"`
+	Quantity  int `json:"quantity"`
+}) []APIError {
+	var errors []APIError
+	
+	if len(items) == 0 {
+		errors = append(errors, *InvalidInput("items", "At least one item is required"))
+		return errors
+	}
+	
+	for i, item := range items {
+		field := fmt.Sprintf("items[%d]", i)
+		
+		if item.ProductID <= 0 {
+			errors = append(errors, *InvalidInput(field+".product_id", "Product ID must be greater than 0"))
+		}
+		
+		if item.Quantity <= 0 {
+			errors = append(errors, *InvalidInput(field+".quantity", "Quantity must be greater than 0"))
+		}
+	}
+	
+	return errors
+}
+
 // Business logic validation errors
 
 // InsufficientStock creates an error for insufficient stock
@@ -183,3 +210,4 @@ func UserRoleNotFound() *APIError {
 		"User role information not found", 
 		"Please log in again to continue")
 }
+
