@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Simple API test script
-BASE_URL="http://127.0.0.1:8080/api/v1"
+BASE_URL="http://127.0.0.1:8081/api/v1"
 
 echo "?? Testing SmarApp API"
 echo "======================"
 
 # Test health check
 echo "1. Testing health check..."
-curl -s "http://127.0.0.1:8080/health" | jq .
+curl -s "http://127.0.0.1:8081/health" | jq .
 echo ""
 
 # Register admin user
@@ -85,5 +85,5 @@ curl -s "$BASE_URL/chat/history" \
 echo ""
 
 echo "? API tests completed!"
-echo "?? To test WebSocket chat, connect to: ws://127.0.0.1:8080/api/v1/chat/ws"
+echo "?? To test WebSocket chat, connect to: ws://127.0.0.1:8081/api/v1/chat/ws"
 echo "   Remember to include Authorization header with Bearer token"

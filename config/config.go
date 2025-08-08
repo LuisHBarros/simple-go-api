@@ -12,7 +12,7 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
-		Port:        getEnv("PORT", "8080"),
+		Port:        getEnv("PORT", "8081"),
 		DatabaseURL: getEnv("DATABASE_URL", "./smarapp.db"),
 		JWTSecret:   getEnv("JWT_SECRET", "your-secret-key-change-this-in-production"),
 	}

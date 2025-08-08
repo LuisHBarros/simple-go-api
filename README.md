@@ -19,9 +19,9 @@ A simple Go API with JWT authentication, role-based access control, WebSocket ch
    go run cmd/server/main.go
    ```
 
-2. **The API will be available at:** `http://127.0.0.1:8080` (or set PORT environment variable)
+2. **The API will be available at:** `http://127.0.0.1:8081` (or set PORT environment variable)
 
-3. **Access Swagger Documentation:** `http://127.0.0.1:8080/docs/index.html`
+3. **Access Swagger Documentation:** `http://127.0.0.1:8081/docs/index.html`
 
 ## API Documentation
 
@@ -61,7 +61,7 @@ The API includes comprehensive Swagger documentation available at `/docs/index.h
 
 ### 1. Register an Admin User
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/auth/register \
+curl -X POST http://127.0.0.1:8081/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
@@ -73,7 +73,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/auth/register \
 
 ### 2. Login
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
+curl -X POST http://127.0.0.1:8081/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",
@@ -83,7 +83,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
 
 ### 3. Create a Product (Admin only)
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/products \
+curl -X POST http://127.0.0.1:8081/api/v1/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
@@ -96,7 +96,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/products \
 
 ### 4. Register a Regular User
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/auth/register \
+curl -X POST http://127.0.0.1:8081/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "user1",
@@ -107,7 +107,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/auth/register \
 
 ### 5. Buy a Product
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/orders \
+curl -X POST http://127.0.0.1:8081/api/v1/orders \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer USER_JWT_TOKEN" \
   -d '{
@@ -121,7 +121,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/orders \
 Connect to the WebSocket endpoint with authentication:
 ```javascript
 const token = "YOUR_JWT_TOKEN";
-const ws = new WebSocket(`ws://127.0.0.1:8080/api/v1/chat/ws`, [], {
+const ws = new WebSocket(`ws://127.0.0.1:8081/api/v1/chat/ws`, [], {
   headers: {
     'Authorization': `Bearer ${token}`
   }
@@ -137,7 +137,7 @@ ws.send(JSON.stringify({
 
 ## Environment Variables
 
-- `PORT` - Server port (default: 8080)
+- `PORT` - Server port (default: 8081)
 - `DATABASE_URL` - SQLite database file path (default: ./smarapp.db)
 - `JWT_SECRET` - JWT signing secret (default: your-secret-key-change-this-in-production)
 

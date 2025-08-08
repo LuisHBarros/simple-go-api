@@ -204,14 +204,14 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	orderMap := make(map[int]*models.OrderWithDetails)
 
 	for rows.Next() {
-		var orderID, userID int
+		var orderID, orderUserID int
 		var total float64
 		var status models.OrderStatus
 		var createdAt, updatedAt time.Time
 		var productName, username string
 
 		err := rows.Scan(
-			&orderID, &userID, &total, &status, &createdAt, &updatedAt,
+			&orderID, &orderUserID, &total, &status, &createdAt, &updatedAt,
 			&productName, &username,
 		)
 		if err != nil {
@@ -223,7 +223,7 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 			orderMap[orderID] = &models.OrderWithDetails{
 				Order: models.Order{
 					ID:        orderID,
-					UserID:    userID,
+					UserID:    orderUserID,
 					Total:     total,
 					Status:    status,
 					CreatedAt: createdAt,
@@ -288,14 +288,14 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	orderMap := make(map[int]*models.OrderWithDetails)
 
 	for rows.Next() {
-		var orderID, userID int
+		var orderID, orderUserID int
 		var total float64
 		var status models.OrderStatus
 		var createdAt, updatedAt time.Time
 		var productName, username string
 
 		err := rows.Scan(
-			&orderID, &userID, &total, &status, &createdAt, &updatedAt,
+			&orderID, &orderUserID, &total, &status, &createdAt, &updatedAt,
 			&productName, &username,
 		)
 		if err != nil {
@@ -307,7 +307,7 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 			orderMap[orderID] = &models.OrderWithDetails{
 				Order: models.Order{
 					ID:        orderID,
-					UserID:    userID,
+					UserID:    orderUserID,
 					Total:     total,
 					Status:    status,
 					CreatedAt: createdAt,
