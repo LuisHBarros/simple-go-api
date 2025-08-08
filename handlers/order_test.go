@@ -139,7 +139,10 @@ func TestOrderHandler_GetUserOrders(t *testing.T) {
 	// Check that all orders belong to the user
 	for _, order := range orders {
 		assert.Equal(t, 2, order.UserID)
-		assert.NotEmpty(t, order.ProductName)
+		assert.NotEmpty(t, order.Items)
+		for _, item := range order.Items {
+			assert.NotEmpty(t, item.ProductName)
+		}
 	}
 }
 
@@ -214,7 +217,10 @@ func TestOrderHandler_GetOrder(t *testing.T) {
 				var order models.OrderWithDetails
 				err := json.Unmarshal(w.Body.Bytes(), &order)
 				assert.NoError(t, err)
-				assert.NotEmpty(t, order.ProductName)
+				assert.NotEmpty(t, order.Items)
+				for _, item := range order.Items {
+					assert.NotEmpty(t, item.ProductName)
+				}
 				assert.Greater(t, order.Total, 0.0)
 			}
 		})
@@ -242,9 +248,12 @@ func TestOrderHandler_GetAllOrders(t *testing.T) {
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(orders), 1) // We have at least 1 test order
 	
-	// Check that orders have both product name and username
+	// Check that orders have product names in items and username
 	for _, order := range orders {
-		assert.NotEmpty(t, order.ProductName)
+		assert.NotEmpty(t, order.Items)
+		for _, item := range order.Items {
+			assert.NotEmpty(t, item.ProductName)
+		}
 		assert.NotEmpty(t, order.Username)
 	}
 }

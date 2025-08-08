@@ -13,12 +13,13 @@ const (
 )
 
 type OrderItem struct {
-	ID        int     `json:"id" db:"id"`
-	OrderID   int     `json:"order_id" db:"order_id"`
-	ProductID int     `json:"product_id" db:"product_id"`
-	Quantity  int     `json:"quantity" db:"quantity"`
-	Price     float64 `json:"price" db:"price"` // Price at time of purchase
-	Total     float64 `json:"total" db:"total"`
+	ID          int     `json:"id" db:"id"`
+	OrderID     int     `json:"order_id" db:"order_id"`
+	ProductID   int     `json:"product_id" db:"product_id"`
+	ProductName string  `json:"product_name,omitempty" db:"product_name"`
+	Quantity    int     `json:"quantity" db:"quantity"`
+	Price       float64 `json:"price" db:"price"` // Price at time of purchase
+	Total       float64 `json:"total" db:"total"`
 }
 
 type Order struct {
@@ -33,8 +34,7 @@ type Order struct {
 
 type OrderWithDetails struct {
 	Order
-	ProductName string `json:"product_name"`
-	Username    string `json:"username"`
+	Username string `json:"username"`
 }
 
 type CreateOrderRequest struct {
