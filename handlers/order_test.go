@@ -50,7 +50,7 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 				},
 			},
 			userID:         2,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusConflict, // 409 is more appropriate for insufficient stock
 		},
 		{
 			name: "non-existent product",

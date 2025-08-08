@@ -55,12 +55,22 @@ func SetupTestDBWithData(t *testing.T) func() {
 
 	// Insert test orders
 	_, err = database.DB.Exec(`
-		INSERT INTO orders (id, user_id, product_id, quantity, price, total, status, created_at, updated_at)
-		VALUES 
-		(1, 2, 1, 2, 99.99, 199.98, 'completed', datetime('now'), datetime('now'))
+		INSERT INTO orders (id, user_id, total, status, created_at, updated_at)
+		VALUES
+		(1, 2, 199.98, 'completed', datetime('now'), datetime('now'))
 	`)
 	if err != nil {
 		t.Fatalf("Failed to insert test orders: %v", err)
+	}
+
+	// Insert test order items
+	_, err = database.DB.Exec(`
+		INSERT INTO order_items (id, order_id, product_id, quantity, price, total)
+		VALUES
+		(1, 1, 1, 2, 99.99, 199.98)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to insert test order items: %v", err)
 	}
 
 	// Insert test chat messages

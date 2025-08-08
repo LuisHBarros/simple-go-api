@@ -184,8 +184,12 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
 	rows, err := database.DB.Query(`
-		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
+		SELECT DISTINCT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at,
+		       p.name as product_name, u.username
 		FROM orders o
+		JOIN order_items oi ON o.id = oi.order_id
+		JOIN products p ON oi.product_id = p.id
+		JOIN users u ON o.user_id = u.id
 		WHERE o.user_id = ?
 		ORDER BY o.created_at DESC
 	`, userID)
@@ -196,23 +200,48 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var orders []models.Order
+	var orders []models.OrderWithDetails
+	orderMap := make(map[int]*models.OrderWithDetails)
+
 	for rows.Next() {
-		var order models.Order
+		var orderID, userID int
+		var total float64
+		var status models.OrderStatus
+		var createdAt, updatedAt time.Time
+		var productName, username string
+
 		err := rows.Scan(
-			&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
+			&orderID, &userID, &total, &status, &createdAt, &updatedAt,
+			&productName, &username,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order"})
 			return
 		}
 
-		// Get order items
+		if _, exists := orderMap[orderID]; !exists {
+			orderMap[orderID] = &models.OrderWithDetails{
+				Order: models.Order{
+					ID:        orderID,
+					UserID:    userID,
+					Total:     total,
+					Status:    status,
+					CreatedAt: createdAt,
+					UpdatedAt: updatedAt,
+				},
+				ProductName: productName,
+				Username:    username,
+			}
+		}
+	}
+
+	// Get order items for each order
+	for _, orderWithDetails := range orderMap {
 		itemRows, err := database.DB.Query(`
 			SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
 			FROM order_items oi
 			WHERE oi.order_id = ?
-		`, order.ID)
+		`, orderWithDetails.Order.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
 			return
@@ -231,8 +260,8 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 		}
 		itemRows.Close()
 
-		order.Items = items
-		orders = append(orders, order)
+		orderWithDetails.Order.Items = items
+		orders = append(orders, *orderWithDetails)
 	}
 
 	c.JSON(http.StatusOK, orders)
@@ -240,8 +269,12 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 
 func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	rows, err := database.DB.Query(`
-		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
+		SELECT DISTINCT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at,
+		       p.name as product_name, u.username
 		FROM orders o
+		JOIN order_items oi ON o.id = oi.order_id
+		JOIN products p ON oi.product_id = p.id
+		JOIN users u ON o.user_id = u.id
 		ORDER BY o.created_at DESC
 	`)
 
@@ -251,23 +284,48 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var orders []models.Order
+	var orders []models.OrderWithDetails
+	orderMap := make(map[int]*models.OrderWithDetails)
+
 	for rows.Next() {
-		var order models.Order
+		var orderID, userID int
+		var total float64
+		var status models.OrderStatus
+		var createdAt, updatedAt time.Time
+		var productName, username string
+
 		err := rows.Scan(
-			&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
+			&orderID, &userID, &total, &status, &createdAt, &updatedAt,
+			&productName, &username,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan order"})
 			return
 		}
 
-		// Get order items
+		if _, exists := orderMap[orderID]; !exists {
+			orderMap[orderID] = &models.OrderWithDetails{
+				Order: models.Order{
+					ID:        orderID,
+					UserID:    userID,
+					Total:     total,
+					Status:    status,
+					CreatedAt: createdAt,
+					UpdatedAt: updatedAt,
+				},
+				ProductName: productName,
+				Username:    username,
+			}
+		}
+	}
+
+	// Get order items for each order
+	for _, orderWithDetails := range orderMap {
 		itemRows, err := database.DB.Query(`
 			SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
 			FROM order_items oi
 			WHERE oi.order_id = ?
-		`, order.ID)
+		`, orderWithDetails.Order.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
 			return
@@ -286,8 +344,8 @@ func (h *OrderHandler) GetAllOrders(c *gin.Context) {
 		}
 		itemRows.Close()
 
-		order.Items = items
-		orders = append(orders, order)
+		orderWithDetails.Order.Items = items
+		orders = append(orders, *orderWithDetails)
 	}
 
 	c.JSON(http.StatusOK, orders)
@@ -305,8 +363,12 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	role, _ := c.Get("role")
 
 	query := `
-		SELECT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at
+		SELECT DISTINCT o.id, o.user_id, o.total, o.status, o.created_at, o.updated_at,
+		       p.name as product_name, u.username
 		FROM orders o
+		JOIN order_items oi ON o.id = oi.order_id
+		JOIN products p ON oi.product_id = p.id
+		JOIN users u ON o.user_id = u.id
 		WHERE o.id = ?` + func() string {
 			if role != models.RoleAdmin {
 				return " AND o.user_id = ?"
@@ -320,9 +382,15 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 		args = append(args, userID)
 	}
 
-	var order models.Order
+	var orderID, orderUserID int
+	var total float64
+	var status models.OrderStatus
+	var createdAt, updatedAt time.Time
+	var productName, username string
+
 	err = database.DB.QueryRow(query, args...).Scan(
-		&order.ID, &order.UserID, &order.Total, &order.Status, &order.CreatedAt, &order.UpdatedAt,
+		&orderID, &orderUserID, &total, &status, &createdAt, &updatedAt,
+		&productName, &username,
 	)
 
 	if err == sql.ErrNoRows {
@@ -339,7 +407,7 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.price, oi.total
 		FROM order_items oi
 		WHERE oi.order_id = ?
-	`, order.ID)
+	`, orderID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order items"})
 		return
@@ -357,6 +425,19 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 		items = append(items, item)
 	}
 
-	order.Items = items
-	c.JSON(http.StatusOK, order)
+	orderWithDetails := models.OrderWithDetails{
+		Order: models.Order{
+			ID:        orderID,
+			UserID:    orderUserID,
+			Total:     total,
+			Status:    status,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+			Items:     items,
+		},
+		ProductName: productName,
+		Username:    username,
+	}
+
+	c.JSON(http.StatusOK, orderWithDetails)
 }
